@@ -120,6 +120,35 @@ def apply_custom_css():
             font-size: 0.8rem !important;
             color: #a0aec0 !important;
         }
+        .answer-section-title {
+            font-family: 'Cinzel', serif;
+            color: #d4af37;
+            font-size: 1.15rem;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+        .artwork-detail-box {
+            background: #1e2533;
+            border: 1px solid #3b4252;
+            border-radius: 8px;
+            padding: 0.85rem 1.1rem;
+            margin-bottom: 0.8rem;
+        }
+        .artwork-detail-title {
+            color: #f6e05e;
+            font-weight: 600;
+            font-size: 0.96rem;
+            margin-bottom: 0.35rem;
+        }
+        .meta-field {
+            display: inline-block;
+            margin-right: 14px;
+            font-size: 0.86rem;
+            color: #e2e8f0;
+        }
+        .meta-field strong {
+            color: #a0aec0;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -136,7 +165,7 @@ def render_header():
 
 
 def render_docent_answer(answer_text: str, is_grounded: bool, model_used: str):
-    """Render styled docent answer with status badge."""
+    """Render prominent direct answer card with proper Markdown parsing and status badge."""
     if is_grounded:
         st.markdown(
             f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">'
@@ -153,7 +182,45 @@ def render_docent_answer(answer_text: str, is_grounded: bool, model_used: str):
             unsafe_allow_html=True,
         )
 
-    st.markdown(f'<div class="docent-box">{answer_text}</div>', unsafe_allow_html=True)
+    # Main Section: Direct Answer (prominent card, native Markdown rendering for bold/italics)
+    with st.container(border=True):
+        st.markdown('<div class="answer-section-title">🏛️ Direct Answer</div>', unsafe_allow_html=True)
+        st.markdown(answer_text)
+
+
+def render_artwork_details(artwork_details: List[Dict[str, Any]]):
+    """Render secondary Artwork Details section with compact metadata grid."""
+    if not artwork_details:
+        return
+
+    st.markdown("#### 📋 Artwork Details")
+    st.caption("Curatorial catalog metadata for cited collection records.")
+
+    for art in artwork_details:
+        cit_id = art.get("citation_id", 1)
+        title = art.get("artwork", "Untitled")
+
+        fields_html = []
+        if art.get("artist"):
+            fields_html.append(f'<span class="meta-field"><strong>Artist:</strong> {art["artist"]}</span>')
+        if art.get("date"):
+            fields_html.append(f'<span class="meta-field"><strong>Date:</strong> {art["date"]}</span>')
+        if art.get("medium"):
+            fields_html.append(f'<span class="meta-field"><strong>Medium:</strong> {art["medium"]}</span>')
+        if art.get("department"):
+            fields_html.append(f'<span class="meta-field"><strong>Department:</strong> {art["department"]}</span>')
+        if art.get("culture"):
+            fields_html.append(f'<span class="meta-field"><strong>Culture:</strong> {art["culture"]}</span>')
+
+        metadata_line = " &nbsp;•&nbsp; ".join(fields_html) if fields_html else "<em>No catalog metadata recorded.</em>"
+
+        box_html = (
+            f'<div class="artwork-detail-box">'
+            f'<div class="artwork-detail-title"><span class="citation-num">[{cit_id}]</span> {title}</div>'
+            f'<div style="margin-top:4px;">{metadata_line}</div>'
+            f'</div>'
+        )
+        st.markdown(box_html, unsafe_allow_html=True)
 
 
 def render_citation_card(cit: Citation):

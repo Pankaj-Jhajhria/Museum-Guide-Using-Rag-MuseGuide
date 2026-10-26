@@ -23,6 +23,7 @@ from src.rag.answer import AnswerGenerator
 from src.retrieval.search import SemanticSearcher
 from src.ui.components import (
     apply_custom_css,
+    render_artwork_details,
     render_citation_card,
     render_docent_answer,
     render_header,
@@ -164,17 +165,21 @@ def main():
                     culture=culture_filter,
                 )
 
-            # Render Docent Answer Box
+            # Section A: Main Direct Answer
             render_docent_answer(
                 answer_text=response.answer,
                 is_grounded=response.grounded,
                 model_used=response.model_used,
             )
 
-            # Render Verified Citations
+            # Section B: Supporting Artwork Details (Compact Metadata Grid)
+            if response.grounded and response.artwork_details:
+                render_artwork_details(response.artwork_details)
+
+            # Section C: Sources & Verified Citations
             if response.citations:
-                st.markdown(f"#### 📚 Verified Evidence & Citations ({len(response.citations)})")
-                st.caption("Every factual proposition links directly to official museum accession records.")
+                st.markdown(f"#### 📚 Sources & Citations ({len(response.citations)})")
+                st.caption("Curatorial evidence documents linking directly to official museum records.")
                 for cit in response.citations:
                     render_citation_card(cit)
 

@@ -227,3 +227,43 @@ def test_exact_artwork_titles_retrieval(searcher):
             f"Query '{q}' expected top result ID {expected_id}, but got {results[0]['id']} ('{results[0]['title']}')"
         )
 
+
+def test_answer_no_boilerplate(generator):
+    """Verify that answers do NOT contain repetitive boilerplate phrases."""
+    queries = [
+        "Who was Nathaniel Hurd and what portrait of him is in the collection?",
+        "what is Portrait of Dora Wheeler, is it a book, a painting or something else?",
+        "Are there French landscape paintings depicting ponds or water in the collection?",
+    ]
+    boilerplate_phrases = [
+        "regarding your inquiry",
+        "curatorial records document the work as follows",
+        "in curatorial notes",
+        "the collection features nathaniel hurd",
+    ]
+    for q in queries:
+        resp = generator.generate(q)
+        assert resp.grounded is True
+        ans_lower = resp.answer.lower()
+        for bp in boilerplate_phrases:
+            assert bp not in ans_lower, f"Query '{q}' contains boilerplate '{bp}' in answer: {resp.answer}"
+
+
+def test_answer_separated_from_metadata(generator):
+    """Verify that metadata is cleanly separated into artwork_details rather than cluttering the answer."""
+    resp = generator.generate("Who was Nathaniel Hurd and what portrait of him is in the collection?")
+    assert resp.grounded is True
+    assert hasattr(resp, "artwork_details")
+    assert len(resp.artwork_details) == 1
+
+    details = resp.artwork_details[0]
+    assert details["artwork"] == "Nathaniel Hurd"
+    assert "John Singleton Copley" in details["artist"]
+    assert "Oil on canvas" in details["medium"] or "oil on canvas" in details["medium"].lower()
+    assert "American Painting and Sculpture" in details["department"]
+
+    # Direct answer starts immediately with who he was
+    assert resp.answer.startswith("Nathaniel Hurd was a prominent silversmith")
+    assert "[1]" in resp.answer
+
+
