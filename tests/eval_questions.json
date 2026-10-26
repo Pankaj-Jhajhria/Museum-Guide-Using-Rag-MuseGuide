@@ -1,0 +1,37 @@
+[
+  {
+    "id": "q1_specific_portrait",
+    "category": "specific_artefact",
+    "question": "Who was Nathaniel Hurd and what portrait of him is in the collection?",
+    "expected_keywords": ["Nathaniel Hurd", "John Singleton Copley", "silversmith", "portrait"],
+    "should_be_grounded": true
+  },
+  {
+    "id": "q2_egyptian_cobra",
+    "category": "cultural_thematic",
+    "question": "What Ancient Egyptian artefacts with cobra or royal symbolism are in the museum?",
+    "expected_keywords": ["Uraeus", "Cobra", "Egypt", "Dynasty"],
+    "should_be_grounded": true
+  },
+  {
+    "id": "q3_french_impressionism",
+    "category": "style_movement",
+    "question": "Are there French landscape paintings depicting ponds or water in the collection?",
+    "expected_keywords": ["Corot", "Ville-d'Avray", "Pond", "France"],
+    "should_be_grounded": true
+  },
+  {
+    "id": "q4_greek_amphora",
+    "category": "artefact_type",
+    "question": "Describe the ancient Greek black-figure amphora in the collection.",
+    "expected_keywords": ["Amphora", "Greek", "Attic", "Warriors", "Dionysos"],
+    "should_be_grounded": true
+  },
+  {
+    "id": "q5_out_of_domain_negative",
+    "category": "anti_hallucination_negative",
+    "question": "What is the capital city of planet Mars and how was its government founded?",
+    "expected_keywords": ["not find sufficient", "relevance score", "cannot answer"],
+    "should_be_grounded": false
+  }
+]

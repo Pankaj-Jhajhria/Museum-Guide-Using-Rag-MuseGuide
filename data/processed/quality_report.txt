@@ -1,0 +1,56 @@
+============================================================
+  MuseGuide — Data Quality Report
+============================================================
+  Total records: 2000
+
+  --- Field Completeness ---
+  id                         2000/2000  (100.0%)
+  title                      2000/2000  (100.0%)
+  creator_name                648/2000  ( 32.4%)
+  creation_date              2000/2000  (100.0%)
+  technique                  2000/2000  (100.0%)
+  description                2000/2000  (100.0%)
+  did_you_know               1909/2000  ( 95.5%)
+  culture                    1997/2000  ( 99.9%)
+  department                 2000/2000  (100.0%)
+  image_url                  2000/2000  (100.0%)
+  museum_url                 2000/2000  (100.0%)
+  creator_bio                 216/2000  ( 10.8%)
+
+  --- Licensing ---
+  CC0                        2000
+
+  --- Artwork Types (top 10) ---
+  Bound Volume                828
+  Painting                    379
+  Sculpture                   253
+  Ceramic                     104
+  Metalwork                    88
+  Drawing                      88
+  Miscellaneous                31
+  Arms and Armor               30
+  Furniture and woodwork       29
+  Silver                       26
+
+  --- Departments (top 10) ---
+  Medieval Art                          966
+  European Painting and Sculpture       137
+  Decorative Art and Design             125
+  Chinese Art                           102
+  Modern European Painting and Sculpture    99
+  Drawings                               86
+  Indian and Southeast Asian Art         77
+  Greek and Roman Art                    75
+  African Art                            53
+  American Painting and Sculpture        52
+
+  --- Retrieval Text Statistics ---
+  Mean length:   1016 chars
+  Median length: 732 chars
+  Min length:    339 chars
+  Max length:    6078 chars
+
+  --- Image URL Validation ---
+  Checked: 5, Valid: 5, Invalid: 0
+
+============================================================

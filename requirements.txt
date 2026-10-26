@@ -1,0 +1,11 @@
+# MuseGuide - Requirements
+# Milestone 1: Data acquisition
+requests>=2.31.0
+pandas>=2.1.0
+python-dotenv>=1.0.0
+
+# Milestone 2: Semantic retrieval
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.4
+numpy>=1.24.0
+pytest>=8.0.0

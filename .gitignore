@@ -1,0 +1,75 @@
+# =====================================================================
+# MuseGuide — .gitignore Configuration
+# =====================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment Variables & Secrets (Keep .env.example safe)
+.env
+.env.*
+!.env.example
+
+# Streamlit Local Configuration & Secrets
+.streamlit/secrets.toml
+
+# Testing & Tool Caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+
+# Raw Datasets (Large raw API dumps reproducible via src/data/fetch_cma.py)
+data/raw/
+
+# Rebuildable Vector Indexes & Generated Metadata (Reproducible via src/retrieval/build_index.py)
+data/index/*.faiss
+data/index/*.pkl
+data/index/cma_metadata.json
+!data/index/index_config.json
+
+# IDE & Editor Temporary Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+
+# Operating System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Logs & Temporary Files
+*.log
+temp/
+tmp/
+
+# Jupyter Notebook Checkpoints
+.ipynb_checkpoints/

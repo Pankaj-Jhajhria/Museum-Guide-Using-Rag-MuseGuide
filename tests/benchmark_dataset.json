@@ -1,0 +1,98 @@
+[
+  {
+    "id": "bench_01_hurd",
+    "query": "Who was Nathaniel Hurd and what portrait of him is in the collection?",
+    "category": "specific_portrait",
+    "ground_truth_id": 94979,
+    "expected_grounded": true,
+    "description": "Nathaniel Hurd portrait by John Singleton Copley"
+  },
+  {
+    "id": "bench_02_uraeus",
+    "query": "What Ancient Egyptian artefacts with cobra or royal symbolism are in the museum?",
+    "category": "cultural_symbolism",
+    "ground_truth_id": 540823,
+    "expected_grounded": true,
+    "description": "Uraeus (Rearing Cobra) from Dynasty 19"
+  },
+  {
+    "id": "bench_03_monet_waterlilies",
+    "query": "Does the museum have Claude Monet paintings of water lilies?",
+    "category": "artist_masterpiece",
+    "ground_truth_id": 136510,
+    "expected_grounded": true,
+    "description": "Water Lilies (Agapanthus) by Claude Monet"
+  },
+  {
+    "id": "bench_04_corot_pond",
+    "query": "Tell me about the landscape painting of a pond at Ville-d'Avray by Corot.",
+    "category": "landscape_specific",
+    "ground_truth_id": 124078,
+    "expected_grounded": true,
+    "description": "Pond at Ville-d'Avray by Jean Baptiste Camille Corot"
+  },
+  {
+    "id": "bench_05_greek_amphora_herakles",
+    "query": "Find the Greek black-figure neck-amphora depicting Herakles and the Nemean Lion.",
+    "category": "mythology_vessel",
+    "ground_truth_id": 144965,
+    "expected_grounded": true,
+    "description": "Black-Figure Neck-Amphora with Herakles"
+  },
+  {
+    "id": "bench_06_heqat_frog",
+    "query": "Is there an ancient Egyptian statue representing the frog goddess Heqat?",
+    "category": "deity_sculpture",
+    "ground_truth_id": 148796,
+    "expected_grounded": true,
+    "description": "Statue of Heqat, the Frog Goddess"
+  },
+  {
+    "id": "bench_07_cat_coffin",
+    "query": "Are there Egyptian animal coffins such as a cat coffin in the collection?",
+    "category": "funerary_artefact",
+    "ground_truth_id": 98363,
+    "expected_grounded": true,
+    "description": "Cat Coffin from Ptolemaic dynasty"
+  },
+  {
+    "id": "bench_08_cima_madonna",
+    "query": "Show me Renaissance Italian altarpieces of the Virgin and Child by Cima da Conegliano.",
+    "category": "renaissance_altar",
+    "ground_truth_id": 122339,
+    "expected_grounded": true,
+    "description": "Virgin and Child with Saints and Donors"
+  },
+  {
+    "id": "bench_09_shiva_chola",
+    "query": "What South Indian Chola period bronze sculptures of Shiva and Parvati are in the museum?",
+    "category": "indian_bronze",
+    "ground_truth_id": 137129,
+    "expected_grounded": true,
+    "description": "Shiva and Parvati Chola bronze"
+  },
+  {
+    "id": "bench_10_negative_mars",
+    "query": "What is the capital city of planet Mars and how was its government founded?",
+    "category": "unsupported_negative",
+    "ground_truth_id": null,
+    "expected_grounded": false,
+    "description": "Out-of-domain sci-fi question with no museum record"
+  },
+  {
+    "id": "bench_11_negative_quantum",
+    "query": "Explain the quantum electrodynamics equation for electron-positron scattering.",
+    "category": "unsupported_negative",
+    "ground_truth_id": null,
+    "expected_grounded": false,
+    "description": "Physics theory with zero art history records"
+  },
+  {
+    "id": "bench_12_negative_sports",
+    "query": "Who scored the winning goal in the 2022 FIFA World Cup final in Qatar?",
+    "category": "unsupported_negative",
+    "ground_truth_id": null,
+    "expected_grounded": false,
+    "description": "Modern sports event with no museum art counterpart"
+  }
+]
