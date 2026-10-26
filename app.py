@@ -13,6 +13,10 @@ import sys
 from pathlib import Path
 import pandas as pd
 import streamlit as st
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Ensure project root is in sys.path
 ROOT_DIR = Path(__file__).resolve().parent
