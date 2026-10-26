@@ -97,21 +97,28 @@ def apply_custom_css():
             font-weight: 600;
         }
         /* Sidebar metric styling to prevent text truncation */
-        [data-testid="stSidebar"] [data-testid="stMetricValue"] {
-            font-size: 1.05rem !important;
-            white-space: normal !important;
-            overflow-wrap: break-word !important;
-            word-break: break-word !important;
-            line-height: 1.3 !important;
+        [data-testid="stSidebar"] [data-testid="stMetric"] {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 8px 12px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
         }
-        [data-testid="stSidebar"] [data-testid="stMetricValue"] > div {
+        [data-testid="stSidebar"] [data-testid="stMetricValue"],
+        [data-testid="stSidebar"] [data-testid="stMetricValue"] > div,
+        [data-testid="stSidebar"] [data-testid="stMetricValue"] * {
+            font-size: 1.02rem !important;
             white-space: normal !important;
+            text-overflow: unset !important;
             overflow: visible !important;
-            text-overflow: clip !important;
+            word-break: break-word !important;
+            overflow-wrap: break-word !important;
+            line-height: 1.35 !important;
         }
-        [data-testid="stSidebar"] [data-testid="stMetricLabel"] {
-            font-size: 0.82rem !important;
-            white-space: normal !important;
+        [data-testid="stSidebar"] [data-testid="stMetricLabel"],
+        [data-testid="stSidebar"] [data-testid="stMetricLabel"] * {
+            font-size: 0.8rem !important;
+            color: #a0aec0 !important;
         }
         </style>
         """,
