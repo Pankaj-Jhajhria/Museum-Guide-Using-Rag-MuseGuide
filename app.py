@@ -85,7 +85,19 @@ def main():
         st.metric("Curated Artefacts", f"{total_items:,}")
         st.metric("Collection Source", "Cleveland Museum of Art")
         st.metric("License", "CC0 Public Domain")
-        st.metric("RAG Engine", generator._effective_backend.replace("_", " ").title())
+
+        st.divider()
+        st.markdown("#### ⚡ Docent Engine")
+        has_groq_key = bool(os.getenv("GROQ_API_KEY"))
+        selected_mode = st.radio(
+            "Generation Mode",
+            options=["Groq Cloud LLM", "Offline Extractive"] if has_groq_key else ["Offline Extractive", "Groq Cloud LLM (No API Key)"],
+            index=0,
+            help="Groq Cloud LLM synthesizes natural, conversational docent answers strictly grounded in evidence. Offline mode generates deterministic answers without API keys or network access.",
+        )
+        backend_choice = "groq" if "Groq" in selected_mode and has_groq_key else "extractive"
+        active_engine_name = f"Groq ({generator.model_name})" if backend_choice == "groq" else "Offline Extractive"
+        st.caption(f"Active Engine: **{active_engine_name}**")
 
         st.divider()
         st.markdown("#### 🎯 Filter Controls")
@@ -163,6 +175,7 @@ def main():
                     query=query_input,
                     department=dept_filter,
                     culture=culture_filter,
+                    backend=backend_choice,
                 )
 
             # Section A: Main Direct Answer

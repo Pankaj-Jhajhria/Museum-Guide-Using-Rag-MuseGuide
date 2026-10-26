@@ -79,7 +79,7 @@ class AnswerGenerator:
         searcher: Optional[SemanticSearcher] = None,
         min_confidence: float = 0.35,
         top_k: int = 4,
-        llm_backend: str = "auto",
+        llm_backend: Optional[str] = None,
         model_name: Optional[str] = None,
     ):
         """Initialize RAG generator.
@@ -88,32 +88,45 @@ class AnswerGenerator:
             searcher: Instance of SemanticSearcher. If None, initialized with defaults.
             min_confidence: Minimum cosine similarity score required for top match to avoid hallucination.
             top_k: Number of evidence documents to retrieve.
-            llm_backend: 'auto', 'api', 'local', or 'extractive'.
-            model_name: Specific LLM model identifier if using api or local.
+            llm_backend: 'auto', 'groq', 'extractive', or 'openai'. If None, reads RAG_GENERATOR env var.
+            model_name: Specific LLM model identifier if using groq or openai. Defaults to GROQ_MODEL or 'qwen/qwen3.8-27b'.
         """
         self.searcher = searcher if searcher is not None else SemanticSearcher()
         self.min_confidence = min_confidence
         self.top_k = top_k
-        self.llm_backend = llm_backend
-        self.model_name = model_name
-        self._local_pipeline = None
+        self.llm_backend = (llm_backend or os.getenv("RAG_GENERATOR", "auto")).lower()
+        self.model_name = model_name or os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
 
         # Determine effective backend
         self._effective_backend = self._resolve_backend()
-        logger.info("AnswerGenerator initialized with backend: %s", self._effective_backend)
+        logger.info("AnswerGenerator initialized with effective backend: %s (model: %s)", self._effective_backend, self.model_name)
 
     def _resolve_backend(self) -> str:
         """Resolve which generation backend to use based on available keys or config."""
-        if self.llm_backend != "auto":
-            return self.llm_backend
+        backend = (self.llm_backend or "auto").lower()
 
-        # Check for API keys
+        if backend == "extractive":
+            return "extractive"
+
+        if backend == "groq":
+            if os.getenv("GROQ_API_KEY"):
+                return "groq"
+            logger.warning("GROQ_API_KEY is not set. Falling back to offline extractive synthesizer.")
+            return "extractive"
+
+        if backend == "openai":
+            if os.getenv("OPENAI_API_KEY"):
+                return "openai"
+            logger.warning("OPENAI_API_KEY is not set. Falling back to offline extractive synthesizer.")
+            return "extractive"
+
+        # 'auto' mode: Prefer Groq if key exists, else OpenAI if key exists, else offline extractive
         if os.getenv("GROQ_API_KEY"):
             return "groq"
         if os.getenv("OPENAI_API_KEY"):
             return "openai"
 
-        # Default to robust extractive synthesizer (works 100% offline with zero dependencies)
+        # Default to robust extractive synthesizer (works 100% offline with zero external dependencies)
         return "extractive"
 
     def generate(
@@ -123,6 +136,7 @@ class AnswerGenerator:
         culture: Optional[str] = None,
         min_year: Optional[int] = None,
         max_year: Optional[int] = None,
+        backend: Optional[str] = None,
     ) -> RAGResponse:
         """Generate a grounded answer for a natural language user query.
 
@@ -132,17 +146,22 @@ class AnswerGenerator:
             culture: Optional culture filter.
             min_year: Optional earliest creation year filter.
             max_year: Optional latest creation year filter.
+            backend: Optional backend override ('groq', 'extractive', 'auto').
 
         Returns:
             RAGResponse object with answer, citations, and grounding status.
         """
+        active_backend = (backend or self._effective_backend).lower()
+        if active_backend == "auto":
+            active_backend = self._resolve_backend()
+
         clean_query = (query or "").strip()
         if not clean_query:
             return RAGResponse(
                 query=query,
                 answer="Please enter a question about historical artefacts or museum collections.",
                 grounded=False,
-                model_used=self._effective_backend,
+                model_used=active_backend,
             )
 
         # 1. Semantic Retrieval
@@ -165,11 +184,13 @@ class AnswerGenerator:
                 answer=refusal_text,
                 grounded=False,
                 retrieved_documents=retrieved,
-                model_used=self._effective_backend,
+                model_used=active_backend,
             )
 
         # 3. Answer Generation via resolved backend
-        answer_text, citations, artwork_details, model_label = self._generate_answer(clean_query, retrieved)
+        answer_text, citations, artwork_details, model_label = self._generate_answer(
+            clean_query, retrieved, active_backend=active_backend
+        )
 
         # Grounded is strictly True ONLY if citations exist AND evidence is topically relevant
         is_grounded = bool(citations) and is_relevant
@@ -225,7 +246,7 @@ class AnswerGenerator:
         doc_tokens = set(re.findall(r"\w+", doc_text))
 
         # Distinctive query concept requirement:
-        # If the user asks a multi-concept question (>= 4 distinctive words, e.g. "capital city planet Mars government"),
+        # If the user asks a multi-concept question (>= 4 distinctive words),
         # matching only 1 isolated word while the main question concepts are completely absent is not genuine grounding.
         shared_distinctive = distinctive_query_words.intersection(doc_tokens)
         if len(distinctive_query_words) >= 4:
@@ -236,27 +257,41 @@ class AnswerGenerator:
         self,
         query: str,
         retrieved: List[Dict[str, Any]],
+        active_backend: str,
     ) -> Tuple[str, List[Citation], List[Dict[str, Any]], str]:
-        """Dispatch generation to the active backend."""
-        backend = self._effective_backend
-
-        if backend == "groq":
+        """Dispatch generation to the active backend with safe fallback."""
+        if active_backend == "groq":
             try:
                 answer = self._call_groq_api(query, retrieved)
                 citations = self._extract_citations_from_text(answer, retrieved)
-                artwork_details = self._build_artwork_details(retrieved[:len(citations)])
-                return answer, citations, artwork_details, "groq"
+                if not citations:
+                    logger.warning("Groq response did not contain any valid citations. Falling back to extractive synthesizer.")
+                    ans, cits, art_details = self._synthesize_extractive_answer(query, retrieved)
+                    return ans, cits, art_details, "extractive_synthesizer (offline fallback)"
+
+                artwork_details = self._build_artwork_details_for_citations(citations, retrieved)
+                model_label = f"groq ({self.model_name or os.getenv('GROQ_MODEL', 'qwen/qwen3.8-27b')})"
+                return answer, citations, artwork_details, model_label
             except Exception as e:
                 logger.warning("Groq API call failed (%s); falling back to extractive synthesizer.", e)
+                ans, cits, art_details = self._synthesize_extractive_answer(query, retrieved)
+                return ans, cits, art_details, "extractive_synthesizer (offline fallback)"
 
-        elif backend == "openai":
+        elif active_backend == "openai":
             try:
                 answer = self._call_openai_api(query, retrieved)
                 citations = self._extract_citations_from_text(answer, retrieved)
-                artwork_details = self._build_artwork_details(retrieved[:len(citations)])
+                if not citations:
+                    logger.warning("OpenAI response did not contain any valid citations. Falling back to extractive synthesizer.")
+                    ans, cits, art_details = self._synthesize_extractive_answer(query, retrieved)
+                    return ans, cits, art_details, "extractive_synthesizer (offline fallback)"
+
+                artwork_details = self._build_artwork_details_for_citations(citations, retrieved)
                 return answer, citations, artwork_details, "openai"
             except Exception as e:
                 logger.warning("OpenAI API call failed (%s); falling back to extractive synthesizer.", e)
+                ans, cits, art_details = self._synthesize_extractive_answer(query, retrieved)
+                return ans, cits, art_details, "extractive_synthesizer (offline fallback)"
 
         # Built-in high-quality deterministic synthesizer
         answer, citations, artwork_details = self._synthesize_extractive_answer(query, retrieved)
@@ -294,6 +329,51 @@ class AnswerGenerator:
             details.append(meta)
         return details
 
+    def _build_artwork_details_for_citations(
+        self,
+        citations: List[Citation],
+        retrieved: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Extract clean, structured artwork metadata fields specifically for validated citations."""
+        details = []
+        seen_artworks = set()
+        for cit in citations:
+            idx = cit.citation_id - 1
+            if 0 <= idx < len(retrieved):
+                item = retrieved[idx]
+                art_id = item.get("id")
+                if art_id in seen_artworks:
+                    continue
+                seen_artworks.add(art_id)
+
+                meta: Dict[str, Any] = {
+                    "citation_id": cit.citation_id,
+                    "artwork": item.get("title") or "Untitled",
+                }
+                raw_creator = item.get("creator_name")
+                if raw_creator and raw_creator.strip().lower() not in ("unknown", "unknown artist", "none"):
+                    meta["artist"] = clean_artist_name(raw_creator)
+
+                date_val = item.get("creation_date")
+                if date_val and str(date_val).strip().lower() not in ("unknown", "date unknown", "n/a", "none"):
+                    meta["date"] = str(date_val).strip()
+
+                tech_val = item.get("technique")
+                if tech_val and str(tech_val).strip().lower() not in ("unspecified", "medium unspecified", "none"):
+                    cleaned_tech = str(tech_val).strip()
+                    meta["medium"] = cleaned_tech.title() if len(cleaned_tech) < 30 else cleaned_tech
+
+                dept_val = item.get("department")
+                if dept_val and str(dept_val).strip().lower() not in ("general collection", "none"):
+                    meta["department"] = str(dept_val).strip()
+
+                culture_val = item.get("culture")
+                if culture_val and str(culture_val).strip().lower() not in ("unspecified", "culture unspecified", "none"):
+                    meta["culture"] = str(culture_val).strip()
+
+                details.append(meta)
+        return details
+
     def _synthesize_extractive_answer(
         self,
         query: str,
@@ -321,7 +401,8 @@ class AnswerGenerator:
         specific_triggers = [
             "who was", "who is", "tell me about the portrait", "tell me about the painting",
             "tell me about the statue", "what is the portrait", "portrait of",
-            "what does the", "who painted", "who created", "who made", "what is portrait"
+            "what does the", "who painted", "who created", "who made", "what is portrait",
+            "story behind", "tell me the story"
         ]
         if any(trig in query_lower for trig in specific_triggers):
             is_specific_inquiry = True
@@ -400,6 +481,7 @@ class AnswerGenerator:
             and bool(queried_cats)
         )
         is_who_was = "who was" in query_lower or "who is" in query_lower
+        is_story_behind = "story behind" in query_lower or "tell me the story" in query_lower
 
         if is_classification and top_type:
             # Classification Question (e.g. Dora Wheeler)
@@ -420,6 +502,15 @@ class AnswerGenerator:
                         context_sentences.append(firm_sents[0])
             body = f" {' '.join(context_sentences)} [1]" if context_sentences else " [1]"
             paragraphs.append(lead + body)
+
+        elif is_story_behind and top_desc:
+            # Story behind historical artwork inquiry (e.g., Stag at Sharkey's)
+            sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", top_desc) if len(s.strip()) > 20]
+            artist_clause = f" by {top_artist}" if top_artist != "an unknown artist" else ""
+            date_clause = f" ({top_date})" if top_date else ""
+            lead = f"*{top_title}*{artist_clause}{date_clause} depicts documented historical events and scenes from its era [1]."
+            narrative = " ".join(sents[:3]) if sents else top_desc
+            paragraphs.append(f"{lead} {narrative} [1]")
 
         elif is_who_was and "nathaniel hurd" in top_title.lower():
             # Specifically Nathaniel Hurd inquiry
@@ -494,35 +585,51 @@ class AnswerGenerator:
         return full_answer, citations, artwork_details
 
     def _call_groq_api(self, query: str, retrieved: List[Dict[str, Any]]) -> str:
-        """Call Groq Cloud API for generation."""
-        import requests
-        api_key = os.getenv("GROQ_API_KEY")
-        model = self.model_name or "llama-3.1-8b-instant"
-        prompt = build_rag_prompt(query, retrieved)
+        """Call Groq Cloud API using official Groq Python SDK.
 
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": model,
-            "messages": [
+        Args:
+            query: User's question.
+            retrieved: Retrieved museum records.
+
+        Returns:
+            Generated response string with inline citations.
+        """
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise ValueError("GROQ_API_KEY environment variable is not set.")
+
+        try:
+            from groq import Groq
+        except ImportError as e:
+            raise ImportError("groq package is not installed. Install via `pip install groq`.") from e
+
+        model = self.model_name or os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
+        client = Groq(api_key=api_key, timeout=20.0)
+
+        # Restrict evidence to top_k documents
+        evidence_docs = retrieved[:self.top_k]
+        prompt = build_rag_prompt(query, evidence_docs, max_items=self.top_k)
+
+        chat_completion = client.chat.completions.create(
+            model=model,
+            messages=[
                 {"role": "user", "content": prompt}
             ],
-            "temperature": 0.2,
-            "max_tokens": 512,
-        }
-        resp = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=20)
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
+            temperature=0.2,
+            max_tokens=450,
+        )
+        content = chat_completion.choices[0].message.content or ""
+        return content.strip()
 
     def _call_openai_api(self, query: str, retrieved: List[Dict[str, Any]]) -> str:
         """Call OpenAI API for generation."""
         import requests
         api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is not set.")
+
         model = self.model_name or "gpt-4o-mini"
-        prompt = build_rag_prompt(query, retrieved)
+        prompt = build_rag_prompt(query, retrieved[:self.top_k], max_items=self.top_k)
 
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -546,7 +653,7 @@ class AnswerGenerator:
         answer_text: str,
         retrieved: List[Dict[str, Any]],
     ) -> List[Citation]:
-        """Extract [N] citation markers from LLM-generated text and map to retrieved documents."""
+        """Extract [N] citation markers from LLM-generated text and map strictly to valid retrieved documents."""
         matches = re.findall(r"\[(\d+)\]", answer_text)
         cited_indices = sorted(list(set(int(m) for m in matches)))
 
@@ -572,6 +679,12 @@ class AnswerGenerator:
                     evidence_snippet=snippet,
                 )
                 citations.append(cit)
+            else:
+                logger.warning(
+                    "Rejected invalid or fabricated citation marker [%d] (only %d documents provided)",
+                    doc_num,
+                    len(retrieved),
+                )
 
         return citations
 

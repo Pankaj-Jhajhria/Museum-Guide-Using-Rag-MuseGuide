@@ -9,12 +9,15 @@ MuseGuide indexes 2,000 public-domain artworks from the **Cleveland Museum of Ar
 ## 🌟 Key Features
 
 * **🏛️ AI Museum Docent (RAG)**: Natural-language Q&A backed by curatorial evidence with inline `[1]`, `[2]` citations.
+* **⚡ Dual Answer Generator Modes**:
+  * **Groq Cloud LLM (Natural & Conversational)**: High-speed grounded answer generation powered by Groq's LPU inference (`qwen/qwen3.8-27b` or custom `GROQ_MODEL`) delivering direct, conversational docent answers free of repetitive catalog boilerplate.
+  * **Offline Extractive Synthesizer (100% Offline)**: Local deterministic synthesizer requiring zero API keys or external dependencies, serving as a reliable fallback whenever offline or when an API key is not configured.
 * **🛡️ Anti-Hallucination Guardrails**: Out-of-domain and unsupported inquiries (e.g., questions about sci-fi, modern sports, or unrecorded topics) trigger an honest refusal rather than fabricating facts.
-* **🔗 Structured Verified Citations**: Every factual claim links to official museum accession records (`https://clevelandart.org/art/...`) with high-resolution image thumbnails and relevance scores.
+* **🔗 Structured Verified Citations**: Every factual claim links to official museum accession records (`https://clevelandart.org/art/...`) with high-resolution image thumbnails and relevance scores. Fabricated or out-of-range citation markers are strictly rejected.
 * **🔍 Semantic Vector Search**: Dense semantic retrieval powered by Sentence Transformers and FAISS cosine similarity (`IndexFlatIP`).
 * **✨ Related Artefact Discovery**: Explores conceptual and stylistic sister works using vector-space nearest neighbors (`find_similar`).
 * **🎨 Interactive Gallery & Compound Filters**: Explores the 2,000-artefact collection by department, culture, medium, and date range.
-* **⚡ 100% Offline-Capable**: Built-in deterministic curatorial docent synthesizer generates grounded answers locally without requiring external API keys or heavy GPU downloads.
+* **📋 3-Tier Visual Response Hierarchy**: Clean separation between Direct Answer, Supporting Artwork Details, and Curatorial Sources & Citations.
 
 ---
 
@@ -47,29 +50,32 @@ MuseGuide indexes 2,000 public-domain artworks from the **Cleveland Museum of Ar
   ┌─────────────────────────────────────────────────────────────┐
   │          4. RELEVANCE GATING & INTENT CLASSIFICATION        │
   │   - Cosine threshold: min_confidence = 0.35                 │
-  │   - Artwork-Specific vs. Thematic Inquiry Distinction       │
+  │   - Topical Keyword & Entity Overlap Verification           │
   └──────────────┬───────────────────────────────┬──────────────┘
-                 │ (Score < 0.35)                │ (Score >= 0.35)
+                 │ (Score < 0.35 or Irrelevant)  │ (Score >= 0.35 & Relevant)
                  ▼                               ▼
-     ┌───────────────────────┐       ┌───────────────────────┐
-     │ 5a. HONEST REFUSAL    │       │ 5b. ANSWER GENERATOR  │
-     │ "Insufficient evidence│       │ - Extractive Docent   │
-     │  in museum collection"│       │   (Default Offline)   │
-     └───────────────────────┘       │ - Cloud API Adapters  │
-                                     │   (Groq / OpenAI)     │
-                                     └───────────┬───────────┘
-                                                 │
-                                                 ▼
+     ┌───────────────────────┐       ┌─────────────────────────────────────┐
+     │ 5a. HONEST REFUSAL    │       │ 5b. DUAL-MODE ANSWER GENERATOR      │
+     │ "Insufficient evidence│       │                                     │
+     │  in museum collection"│       │ • Groq Cloud LLM (Natural/Focused)  │
+     └───────────────────────┘       │   (Official Groq SDK + Citations)   │
+                                     │ • Extractive Synthesizer (Offline)  │
+                                     │   (Zero-key deterministic fallback) │
+                                     └──────────────────┬──────────────────┘
+                                                        │
+                                                        ▼
   ┌─────────────────────────────────────────────────────────────┐
-  │         6. CITATION VERIFICATION & 1:1 MARKER MAPPING       │
-  │   - Strict 1:1 alignment between text [N] and Citation objs │
+  │         6. CITATION VERIFICATION & INTEGRITY GUARD          │
+  │   - Validate [N] markers strictly against supplied records  │
+  │   - Discard out-of-range or hallucinated citation markers   │
   │   - Official CMA portal links & thumbnail verification      │
   └──────────────────────────────┬──────────────────────────────┘
                                  │
                                  ▼
   ┌─────────────────────────────────────────────────────────────┐
   │          7. INTERACTIVE STREAMLIT WEB APP (Port 8501)       │
-  │   - AI Docent Tab • Semantic Search • Gallery • Analytics   │
+  │   - Generator Mode Toggle • Docent Tab • Search • Gallery   │
+  │   - 3-Tier Layout: Answer -> Artwork Details -> Citations   │
   └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -80,12 +86,14 @@ MuseGuide indexes 2,000 public-domain artworks from the **Cleveland Museum of Ar
 | Component | Technology | Rationale |
 |---|---|---|
 | **Language** | Python 3.13 | High performance, modern typing, robust ecosystem |
+| **Cloud LLM (Optional)** | Groq Python SDK (`groq`) | Ultra-fast LPU inference, natural conversational grounded docent answers |
+| **Offline Synthesizer** | Native Extractive Synthesizer | Deterministic docent answering with zero network calls or external API keys |
 | **Data Engine** | Pandas & NumPy | Fast data transformation and array vector math |
 | **Embeddings** | `sentence-transformers` (`all-MiniLM-L6-v2`) | Compact (384-dim), fast CPU/GPU inference, top semantic benchmark score |
 | **Vector Index** | `faiss-cpu` (`IndexFlatIP`) | Exact inner product (cosine similarity), zero recall loss, fast lookup |
 | **UI Framework** | Streamlit | Rapid interactive web interface with native layout & data visualization |
 | **Data Source** | Cleveland Museum of Art API | 64,000+ open access artworks, CC0 public domain licensing |
-| **Testing** | `pytest` | 16 automated unit, integration, and RAG regression tests |
+| **Testing** | `pytest` | 24 automated unit, integration, mock LLM, and RAG regression tests |
 
 ---
 
@@ -217,7 +225,7 @@ To ensure full transparency and auditability, MuseGuide distinguishes automated 
 ### Automated Checks (Verified & Reproducible via CI/CLI):
 * **Data Integrity**: 2,000 CC0 museum artworks audited with 0 missing images and 0 missing descriptions.
 * **Vector Index**: 2,000 FAISS vectors indexed with normalized L2 cosine similarity (`IndexFlatIP`).
-* **Unit & Regression Suite**: 16 automated tests passing in `tests/test_rag.py` and `tests/test_retrieval.py` (`python -m pytest tests/ -v`).
+* **Unit & Regression Suite**: 24 automated tests passing in `tests/test_rag.py` and `tests/test_retrieval.py` (`python -m pytest tests/ -v`).
 * **Evaluation Suite**: 12 benchmark cases (9 positive + 3 negative) validating Recall@5, MRR, 1:1 citation marker parity, and out-of-domain refusals (`python tests/evaluate_rag.py`).
 * **HTTP Server Health**: Streamlit web server launches cleanly on `http://localhost:8501` returning HTTP 200 OK.
 
@@ -239,17 +247,65 @@ To ensure full transparency and auditability, MuseGuide distinguishes automated 
 
 ---
 
-## ⚙️ How the Offline Generator Works
+## ⚡ Answer Generation Modes: Groq Cloud LLM & Offline Fallback
 
-To eliminate third-party API dependencies and guarantee 100% reproducibility in academic or portfolio grading environments, MuseGuide features an **Offline Curatorial Extractive Synthesizer**:
+MuseGuide features dual answer generation engines designed for high-quality, grounded curatorial responses with zero hallucination:
 
-1. **Relevance Gating**: Queries with top retrieval score below `min_confidence = 0.35` are rejected with a helpful refusal message.
-2. **Specific vs. Thematic Intent Gating**:
-   * If a user asks about a specific person or artwork (e.g. *"Who was Nathaniel Hurd..."*), secondary retrieved documents (e.g. unrelated landscapes) are **suppressed**, preventing hallucinated connections.
-   * If a user asks a thematic question (e.g. *"What Egyptian cobras are in the museum?"*), secondary works are only included if they pass strict score thresholds (`score >= 0.52`, `score >= top_score * 0.82`) and share key query entities.
-3. **Curatorial Synthesis**: Extracts the most informative descriptive propositions from verified museum notes, formats them in a docent narrative, and maps every proposition to an exact `[1]`, `[2]` citation.
-4. **Structured Citation Pairing**: Citation numbers in text match the structured `Citation` metadata objects 1:1, providing direct clickable links to official museum records.
-5. **Optional Cloud LLM Mode**: If `GROQ_API_KEY` or `OPENAI_API_KEY` is set in `.env`, the pipeline automatically switches to cloud LLM generation while preserving the same evidence grounding and citation pipeline.
+### 1. Groq Cloud LLM Mode (Natural, Conversational & Focused)
+* **Engine**: Powered by Groq's official API and Python SDK (`groq`).
+* **Model**: Supported high-speed models such as `qwen/qwen3.8-27b` (configurable via `GROQ_MODEL`).
+* **Behavior**:
+  * Delivers direct answers in the very first sentence without repetitive catalog throat-clearing (e.g., skips *"Regarding your inquiry..."* or *"Curatorial records document the work as follows..."*).
+  * Synthesizes natural, human docent narratives adapted to inquiry types: identification questions immediately state the classification and medium; historical questions narrate the story concisely.
+  * Embeds inline `[1]`, `[2]` citation markers tied strictly to provided retrieved museum records.
+  * Rejects fabricated or out-of-range citations (e.g., `[9]` when only 2 documents were retrieved).
+
+### 2. Offline Extractive Mode (100% Local & Deterministic)
+* **Engine**: Native rule-guided curatorial docent synthesizer with zero external dependencies.
+* **Key Requirements**: Requires **no API key** and **no network connectivity**.
+* **Behavior**:
+  * Extracts verified factual propositions directly from curated curatorial notes.
+  * Performs intent-based gating (artwork-specific vs. multi-work thematic inquiries).
+  * Guaranteed 100% reproducible baseline for testing, grading, or offline environments.
+  * Acts as the automatic, graceful fallback if a Groq request encounters a timeout, missing key, or rate limit.
+
+---
+
+## 🔑 Groq Configuration Guide
+
+### Step 1: Obtain a Groq API Key
+1. Sign up for a free account on the official Groq Console: [https://console.groq.com](https://console.groq.com).
+2. Navigate to **API Keys** and click **Create API Key**.
+3. Copy your key (starts with `gsk_...`).
+
+> [!NOTE]
+> Free-tier quotas, available models, and request limits are managed dynamically by Groq. Refer to the official [Groq Documentation & Limits](https://console.groq.com/docs) for current rate limits and model lifecycle updates.
+
+### Step 2: Configure Environment Variables Locally
+Copy the template configuration file:
+```powershell
+cp .env.example .env
+```
+Open `.env` in your text editor and set your configuration:
+```env
+# Cleveland Museum of Art Open Access API
+CMA_API_BASE_URL=https://openaccess-api.clevelandart.org/api
+
+# Groq Cloud LLM Configuration
+GROQ_API_KEY=gsk_your_actual_key_here
+GROQ_MODEL=qwen/qwen3.8-27b
+
+# RAG Generator: 'auto', 'groq', or 'extractive'
+RAG_GENERATOR=auto
+```
+
+> [!CAUTION]
+> Never commit `.env` or your real API key to Git. MuseGuide's `.gitignore` explicitly excludes `.env` and `.env.*` to keep secrets secure.
+
+### Step 3: Select Generation Mode in the Streamlit UI
+* Open the **⚡ Docent Engine** section in the left sidebar of the Streamlit app.
+* Toggle between **Groq Cloud LLM** and **Offline Extractive**.
+* The docent response header explicitly labels the active engine (e.g. `groq (qwen/qwen3.8-27b)` or `extractive_synthesizer (offline fallback)`). The app never silently claims Groq was used if a fallback occurred.
 
 ---
 

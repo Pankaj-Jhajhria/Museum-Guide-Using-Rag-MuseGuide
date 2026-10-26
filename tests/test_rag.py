@@ -29,8 +29,8 @@ def searcher():
 
 @pytest.fixture(scope="module")
 def generator(searcher):
-    """AnswerGenerator instance using extractive docent synthesizer."""
-    return AnswerGenerator(searcher=searcher, min_confidence=0.35, top_k=4)
+    """AnswerGenerator instance using offline extractive docent synthesizer."""
+    return AnswerGenerator(searcher=searcher, min_confidence=0.35, top_k=4, llm_backend="extractive")
 
 
 def test_format_context_document():
@@ -265,5 +265,139 @@ def test_answer_separated_from_metadata(generator):
     # Direct answer starts immediately with who he was
     assert resp.answer.startswith("Nathaniel Hurd was a prominent silversmith")
     assert "[1]" in resp.answer
+
+
+def test_groq_mode_mocked_answer(searcher, monkeypatch):
+    """Verify Groq mode generates focused answer with citations using mocked Groq client."""
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_mock_test_key_12345")
+
+    mock_answer = (
+        "Nathaniel Hurd was an accomplished silversmith and engraver in colonial Boston. "
+        "His portrait was painted by John Singleton Copley around 1765 [1]."
+    )
+
+    class MockChoice:
+        message = type("MockMsg", (), {"content": mock_answer})()
+
+    class MockCompletion:
+        choices = [MockChoice()]
+
+    class MockCompletions:
+        def create(self, **kwargs):
+            # Assert only prompt and model passed
+            assert kwargs.get("model")
+            assert len(kwargs.get("messages", [])) > 0
+            return MockCompletion()
+
+    class MockChat:
+        completions = MockCompletions()
+
+    class MockGroqClient:
+        def __init__(self, **kwargs):
+            assert kwargs.get("api_key") == "gsk_mock_test_key_12345"
+        chat = MockChat()
+
+    monkeypatch.setattr("groq.Groq", MockGroqClient)
+
+    gen = AnswerGenerator(searcher=searcher, min_confidence=0.35, top_k=4, llm_backend="groq")
+    resp = gen.generate("Who was Nathaniel Hurd and what portrait is in the museum?")
+
+    assert resp.grounded is True
+    assert "groq" in resp.model_used.lower()
+    assert "Nathaniel Hurd was an accomplished silversmith" in resp.answer
+    assert len(resp.citations) == 1
+    assert resp.citations[0].citation_id == 1
+    assert "Nathaniel Hurd" in resp.citations[0].title
+    assert len(resp.artwork_details) == 1
+    assert resp.artwork_details[0]["artwork"] == "Nathaniel Hurd"
+
+
+def test_groq_llm_does_not_receive_unrelated_documents(searcher, monkeypatch):
+    """Verify that the prompt constructed for Groq only contains top_k evidence documents."""
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_mock_test_key_12345")
+    captured_prompt = {}
+
+    class MockChoice:
+        message = type("MockMsg", (), {"content": "Grounded answer [1]."})()
+
+    class MockCompletions:
+        def create(self, **kwargs):
+            captured_prompt["content"] = kwargs["messages"][0]["content"]
+            return type("MockCompletion", (), {"choices": [MockChoice()]})()
+
+    class MockGroqClient:
+        def __init__(self, **kwargs):
+            pass
+        chat = type("MockChat", (), {"completions": MockCompletions()})()
+
+    monkeypatch.setattr("groq.Groq", MockGroqClient)
+
+    gen = AnswerGenerator(searcher=searcher, min_confidence=0.35, top_k=2, llm_backend="groq")
+    gen.generate("Tell me about Egyptian cobras")
+
+    assert "[Document 1]" in captured_prompt["content"]
+    assert "[Document 2]" in captured_prompt["content"]
+    assert "[Document 3]" not in captured_prompt["content"]
+
+
+def test_invalid_fabricated_citation_rejected(searcher, monkeypatch):
+    """Verify that hallucinated or out-of-range citation markers (e.g. [9]) are rejected and not converted to cards."""
+    gen = AnswerGenerator(searcher=searcher, min_confidence=0.35, top_k=2, llm_backend="extractive")
+    retrieved = searcher.search("Who was Nathaniel Hurd?", top_k=2)
+
+    # Simulate model text with valid [1] and fabricated [9]
+    fake_answer = "Nathaniel Hurd was a silversmith [1], who also lived on the moon [9]."
+    citations = gen._extract_citations_from_text(fake_answer, retrieved)
+
+    # Only document 1 should be accepted; document 9 must be rejected
+    assert len(citations) == 1
+    assert citations[0].citation_id == 1
+    assert all(c.citation_id != 9 for c in citations)
+
+
+def test_groq_missing_api_key_safe_fallback(searcher, monkeypatch):
+    """Verify missing GROQ_API_KEY triggers safe fallback to offline extractive synthesis without crash."""
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+
+    gen = AnswerGenerator(searcher=searcher, min_confidence=0.35, top_k=4, llm_backend="groq")
+    # Backend should resolve to extractive
+    assert gen._effective_backend == "extractive"
+
+    # Even if backend="groq" is forced in generate call:
+    resp = gen.generate("Who was Nathaniel Hurd?", backend="groq")
+    assert resp.grounded is True
+    assert "extractive" in resp.model_used.lower()
+    assert "[1]" in resp.answer
+
+
+def test_groq_timeout_or_error_safe_fallback(searcher, monkeypatch):
+    """Verify Groq API network timeout or rate limit cleanly falls back to offline docent."""
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_mock_test_key_12345")
+
+    def mock_call_error(query, retrieved):
+        raise TimeoutError("Groq API request timed out after 20.0s")
+
+    gen = AnswerGenerator(searcher=searcher, min_confidence=0.35, top_k=4, llm_backend="groq")
+    monkeypatch.setattr(gen, "_call_groq_api", mock_call_error)
+
+    resp = gen.generate("Who was Nathaniel Hurd?", backend="groq")
+    assert resp.grounded is True
+    assert "offline fallback" in resp.model_used.lower()
+    assert len(resp.citations) >= 1
+    assert "Nathaniel Hurd was a prominent silversmith" in resp.answer
+
+
+def test_stag_at_sharkeys_query_answers_story(generator):
+    """Verify 'Stag at Sharkey's' inquiry answers historical story directly without boilerplate."""
+    resp = generator.generate("Tell me the story behind Stag at Sharkey's.")
+    assert resp.grounded is True
+    assert len(resp.citations) >= 1
+    assert resp.citations[0].artwork_id == 92937 or "Stag at Sharkey's" in resp.citations[0].title
+
+    ans_lower = resp.answer.lower()
+    assert "bellows" in ans_lower or "sharkey" in ans_lower
+    assert "regarding your inquiry" not in ans_lower
+    assert "curatorial records document the work as follows" not in ans_lower
+
 
 
