@@ -71,5 +71,15 @@ desktop.ini
 temp/
 tmp/
 
+# Audio files & TTS model binaries (Downloaded voice models and temporary audio)
+*.wav
+*.mp3
+*.ogg
+*.onnx
+*.onnx.json
+models/
+audio/
+
 # Jupyter Notebook Checkpoints
 .ipynb_checkpoints/
+

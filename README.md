@@ -12,6 +12,8 @@ MuseGuide indexes 2,000 public-domain artworks from the **Cleveland Museum of Ar
 * **⚡ Dual Answer Generator Modes**:
   * **Groq Cloud LLM (Natural & Conversational)**: High-speed grounded answer generation powered by Groq's LPU inference (`qwen/qwen3.8-27b` or custom `GROQ_MODEL`) delivering direct, conversational docent answers free of repetitive catalog boilerplate.
   * **Offline Extractive Synthesizer (100% Offline)**: Local deterministic synthesizer requiring zero API keys or external dependencies, serving as a reliable fallback whenever offline or when an API key is not configured.
+* **🎙️ Optional Voice Input (Groq Whisper)**: Ask museum questions by speaking directly into your microphone, with automatic speech-to-text powered by Groq Whisper (`whisper-large-v3-turbo`).
+* **🔊 Manual Text-to-Speech (Local Piper & pyttsx3)**: Listen to direct answers with a dedicated `🔊 Speak Answer` button. Speech is generated locally on CPU using Piper ONNX neural voice with zero external audio APIs, citations cleanly omitted from speech, and zero autoplay.
 * **🛡️ Anti-Hallucination Guardrails**: Out-of-domain and unsupported inquiries (e.g., questions about sci-fi, modern sports, or unrecorded topics) trigger an honest refusal rather than fabricating facts.
 * **🔗 Structured Verified Citations**: Every factual claim links to official museum accession records (`https://clevelandart.org/art/...`) with high-resolution image thumbnails and relevance scores. Fabricated or out-of-range citation markers are strictly rejected.
 * **🔍 Semantic Vector Search**: Dense semantic retrieval powered by Sentence Transformers and FAISS cosine similarity (`IndexFlatIP`).
@@ -87,13 +89,15 @@ MuseGuide indexes 2,000 public-domain artworks from the **Cleveland Museum of Ar
 |---|---|---|
 | **Language** | Python 3.13 | High performance, modern typing, robust ecosystem |
 | **Cloud LLM (Optional)** | Groq Python SDK (`groq`) | Ultra-fast LPU inference, natural conversational grounded docent answers |
+| **Voice Input (STT)** | Groq Whisper (`whisper-large-v3-turbo`) | High-accuracy multilingual speech-to-text with sub-second API latency |
+| **Voice Output (TTS)** | Piper TTS (`en_US-lessac-medium`) & `pyttsx3` | Fast local neural ONNX speech synthesis on CPU with zero cloud dependencies |
 | **Offline Synthesizer** | Native Extractive Synthesizer | Deterministic docent answering with zero network calls or external API keys |
 | **Data Engine** | Pandas & NumPy | Fast data transformation and array vector math |
 | **Embeddings** | `sentence-transformers` (`all-MiniLM-L6-v2`) | Compact (384-dim), fast CPU/GPU inference, top semantic benchmark score |
 | **Vector Index** | `faiss-cpu` (`IndexFlatIP`) | Exact inner product (cosine similarity), zero recall loss, fast lookup |
 | **UI Framework** | Streamlit | Rapid interactive web interface with native layout & data visualization |
 | **Data Source** | Cleveland Museum of Art API | 64,000+ open access artworks, CC0 public domain licensing |
-| **Testing** | `pytest` | 24 automated unit, integration, mock LLM, and RAG regression tests |
+| **Testing** | `pytest` | 38 automated unit, integration, mock voice, and RAG regression tests |
 
 ---
 
@@ -225,7 +229,7 @@ To ensure full transparency and auditability, MuseGuide distinguishes automated 
 ### Automated Checks (Verified & Reproducible via CI/CLI):
 * **Data Integrity**: 2,000 CC0 museum artworks audited with 0 missing images and 0 missing descriptions.
 * **Vector Index**: 2,000 FAISS vectors indexed with normalized L2 cosine similarity (`IndexFlatIP`).
-* **Unit & Regression Suite**: 24 automated tests passing in `tests/test_rag.py` and `tests/test_retrieval.py` (`python -m pytest tests/ -v`).
+* **Unit & Regression Suite**: 38 automated tests passing in `tests/test_rag.py`, `tests/test_retrieval.py`, and `tests/test_voice.py` (`python -m pytest tests/ -v`).
 * **Evaluation Suite**: 12 benchmark cases (9 positive + 3 negative) validating Recall@5, MRR, 1:1 citation marker parity, and out-of-domain refusals (`python tests/evaluate_rag.py`).
 * **HTTP Server Health**: Streamlit web server launches cleanly on `http://localhost:8501` returning HTTP 200 OK.
 
@@ -306,6 +310,46 @@ RAG_GENERATOR=auto
 * Open the **⚡ Docent Engine** section in the left sidebar of the Streamlit app.
 * Toggle between **Groq Cloud LLM** and **Offline Extractive**.
 * The docent response header explicitly labels the active engine (e.g. `groq (qwen/qwen3.8-27b)` or `extractive_synthesizer (offline fallback)`). The app never silently claims Groq was used if a fallback occurred.
+
+---
+
+## 🎙️ Voice Interaction & Local Text-to-Speech Guide
+
+MuseGuide includes optional, multimodal voice capabilities while keeping the clean text-first experience as default:
+
+### 1. Voice Input (Groq Whisper Speech-to-Text)
+* **Recording Control**: A microphone widget beside the question input box enables browser-based audio recording (`st.audio_input`).
+* **Transcription Pipeline**:
+  1. The user clicks the microphone button and speaks their museum question.
+  2. The recorded audio is transcribed by Groq's high-speed `whisper-large-v3-turbo` model.
+  3. The recognized transcript is displayed in a dedicated card so the user can verify what was heard.
+  4. The transcribed question is automatically dispatched to the **exact same RAG pipeline** as typed questions (`Retrieval -> Relevance gating -> Grounded answer -> Citations`).
+  5. Session state deduplication prevents accidental duplicate submissions when Streamlit reruns.
+* **Refusal & Grounding Parity**: If a voice query asks an out-of-domain or unsupported question (e.g., *"What is the capital of Mars?"*), the anti-hallucination guardrail triggers normally.
+
+### 2. Voice Output (Local Text-to-Speech via Piper & pyttsx3)
+* **Manual Playback Only**: Audio is **never played automatically** upon receiving an answer. A `🔊 Speak Answer` button appears only after a valid docent answer exists.
+* **Clean Speech Synthesis**: The TTS cleaner strips inline citation markers (`[1]`, `[2]`), markdown bold/italics (`**...**`, `*...*`), and raw URLs from the spoken narration while preserving them in the displayed text.
+* **Dual TTS Engine Strategy**:
+  1. **Primary (Neural ONNX)**: Piper TTS using the articulate `en_US-lessac-medium` voice model for natural museum docent narration.
+  2. **Automatic Fallback (Local OS)**: If the Piper model binary is not yet downloaded, MuseGuide seamlessly falls back to `pyttsx3` (Windows SAPI5 / macOS NSSpeechSynthesizer), generating audio 100% offline with zero downloads.
+
+### 3. How to Download the Local Piper Voice Model
+Run the following one-line helper in terminal:
+```powershell
+python -c "from src.voice import download_piper_model; download_piper_model()"
+```
+This downloads `en_US-lessac-medium.onnx` (~60 MB) and its configuration to `models/piper/`.
+*Note: `models/` and all audio binaries (`*.wav`, `*.onnx`) are strictly excluded by `.gitignore` to maintain a clean repository.*
+
+### 4. Running Without Voice (Offline & Graceful Degradation)
+* **Text Remains Default**: Voice input and speech synthesis are completely optional. Users can type questions and read text answers without any microphone or speaker dependencies.
+* **No API Key Behavior**: If `GROQ_API_KEY` is not configured, the app operates 100% offline using the extractive synthesizer for answers and `pyttsx3` for speech. If the microphone is clicked without an API key, the app displays a clear notification and allows typing.
+
+### 5. Troubleshooting
+* **Microphone Permissions**: Ensure your browser has permitted microphone access for `http://localhost:8501`.
+* **Empty Audio Warnings**: Speak clearly for at least 1–2 seconds before stopping the recording widget.
+* **Audio Duplicate Playback**: Session state locks prevent audio from re-playing on page interaction.
 
 ---
 

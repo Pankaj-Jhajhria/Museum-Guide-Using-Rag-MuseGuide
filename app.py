@@ -31,7 +31,9 @@ from src.ui.components import (
     render_citation_card,
     render_docent_answer,
     render_header,
+    render_speak_control,
 )
+from src.voice import DocentTTS, VoiceTranscriber
 
 # Page configuration
 st.set_page_config(
@@ -59,6 +61,18 @@ def load_generator() -> AnswerGenerator:
     return AnswerGenerator(searcher=searcher, min_confidence=0.35, top_k=4)
 
 
+@st.cache_resource(show_spinner="Initializing Local Speech Synthesizer...")
+def load_tts_engine() -> DocentTTS:
+    """Load and cache the local Piper / pyttsx3 speech synthesizer."""
+    return DocentTTS()
+
+
+@st.cache_resource(show_spinner="Initializing Speech Transcriber...")
+def load_transcriber() -> VoiceTranscriber:
+    """Load and cache Groq Whisper transcriber."""
+    return VoiceTranscriber()
+
+
 @st.cache_data
 def load_metadata_df() -> pd.DataFrame:
     """Load artwork metadata into a pandas DataFrame."""
@@ -74,6 +88,8 @@ def main():
         searcher = load_searcher()
         generator = load_generator()
         artworks_df = load_metadata_df()
+        tts_engine = load_tts_engine()
+        transcriber = load_transcriber()
     except Exception as e:
         st.error(f"Error loading MuseGuide resources: {e}")
         st.info("Please verify that data/processed/cma_artworks.json and data/index/cma_index.faiss exist.")
@@ -102,6 +118,7 @@ def main():
         backend_choice = "groq" if "Groq" in selected_mode and has_groq_key else "extractive"
         active_engine_name = f"Groq ({generator.model_name})" if backend_choice == "groq" else "Offline Extractive"
         st.caption(f"Active Engine: **{active_engine_name}**")
+        st.caption(f"Speech Narration: **{tts_engine.engine_name}**")
 
         st.divider()
         st.markdown("#### 🎯 Filter Controls")
@@ -123,6 +140,7 @@ def main():
         for prompt in example_prompts:
             if st.button(prompt, key=f"ex_{prompt[:20]}"):
                 st.session_state["user_query"] = prompt
+                st.session_state["suggested_prompt_clicked"] = True
 
         st.divider()
         st.markdown(
@@ -149,45 +167,108 @@ def main():
     )
 
     # -------------------------------------------------------------
-    # TAB 1: AI Museum Docent (RAG with Citations)
+    # TAB 1: AI Museum Docent (RAG with Citations & Voice)
     # -------------------------------------------------------------
     with tab_docent:
         st.markdown("### Ask the AI Docent")
         st.caption("Answers are strictly grounded in verified museum records with linked citations.")
 
-        default_q = st.session_state.get(
-            "user_query",
-            "Who was Nathaniel Hurd and what portrait of him is in the collection?",
-        )
+        # Question input area: Primary text input + optional audio microphone
+        col_text, col_mic = st.columns([5, 2])
+        with col_text:
+            default_q = st.session_state.get(
+                "user_query",
+                "Who was Nathaniel Hurd and what portrait of him is in the collection?",
+            )
+            query_input = st.text_input(
+                "Enter your natural language question:",
+                value=default_q,
+                placeholder="e.g., What Ancient Egyptian cobras or royal symbols are in the museum?",
+                key="docent_text_query",
+            )
+            col_ask, _ = st.columns([1, 5])
+            with col_ask:
+                ask_btn = st.button("Ask Docent", type="primary", key="btn_ask_docent")
 
-        query_input = st.text_input(
-            "Enter your natural language question:",
-            value=default_q,
-            placeholder="e.g., What Ancient Egyptian cobras or royal symbols are in the museum?",
-        )
+        with col_mic:
+            st.markdown(
+                "<div style='font-size:0.83rem; font-weight:600; color:#d4af37; margin-bottom:4px;'>"
+                "🎙️ Voice Input (Groq Whisper)"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+            voice_recording = st.audio_input("Record voice question", label_visibility="collapsed", key="docent_audio_mic")
 
-        col_btn, col_clear = st.columns([1, 6])
-        with col_btn:
-            ask_btn = st.button("Ask Docent", type="primary")
+        # Determine if a query was triggered
+        triggered_query = None
 
-        if ask_btn or query_input:
+        # Check for new microphone recording
+        if voice_recording is not None:
+            audio_bytes = voice_recording.getvalue()
+            audio_sig = hash(audio_bytes)
+            if audio_bytes and st.session_state.get("last_audio_sig") != audio_sig:
+                st.session_state["last_audio_sig"] = audio_sig
+                with st.status("🎙️ Transcribing voice recording with Groq Whisper...", expanded=True) as status:
+                    st.write("Processing audio with `whisper-large-v3-turbo`...")
+                    try:
+                        transcribed = transcriber.transcribe(audio_bytes, filename=getattr(voice_recording, "name", "voice_query.wav"))
+                        st.session_state["user_query"] = transcribed
+                        st.session_state["last_transcript"] = transcribed
+                        status.update(label=f"✓ Transcribed: \"{transcribed}\"", state="complete", expanded=False)
+                        triggered_query = transcribed
+                    except Exception as e:
+                        status.update(label="⚠️ Voice transcription failed", state="error", expanded=True)
+                        st.error(f"Voice Transcription Error: {e}")
+                        st.info("You can still type your question in the text box on the left.")
+
+        # Check for manual Ask Docent button
+        if ask_btn:
+            triggered_query = query_input
+            st.session_state["user_query"] = query_input
+        elif st.session_state.get("suggested_prompt_clicked"):
+            triggered_query = st.session_state.get("user_query")
+            st.session_state["suggested_prompt_clicked"] = False
+
+        # First-load initialization so visitors immediately see a guided response
+        if "active_docent_response" not in st.session_state and default_q:
+            triggered_query = default_q
+
+        # Execute generation if a query was triggered
+        if triggered_query:
             dept_filter = selected_dept if selected_dept != "All Departments" else None
             culture_filter = selected_culture if selected_culture != "All Cultures" else None
 
             with st.spinner("Retrieving evidence and formulating guided answer..."):
                 response = generator.generate(
-                    query=query_input,
+                    query=triggered_query,
                     department=dept_filter,
                     culture=culture_filter,
                     backend=backend_choice,
                 )
+                st.session_state["active_docent_response"] = response
+                # Clear previous voice audio cache for the new answer
+                st.session_state["tts_audio_cache"] = None
 
+        # Display recognized voice transcript badge if present
+        if st.session_state.get("last_transcript"):
+            st.markdown(
+                f'<div class="voice-box"><span style="color:#f6e05e; font-weight:600;">🎙️ Recognized Voice:</span> '
+                f'<em>"{st.session_state["last_transcript"]}"</em></div>',
+                unsafe_allow_html=True,
+            )
+
+        # Render the response
+        response = st.session_state.get("active_docent_response")
+        if response:
             # Section A: Main Direct Answer
             render_docent_answer(
                 answer_text=response.answer,
                 is_grounded=response.grounded,
                 model_used=response.model_used,
             )
+
+            # Voice Output: Speak Answer Button (Manual playback only, never autoplays)
+            render_speak_control(response.answer, tts_engine)
 
             # Section B: Supporting Artwork Details (Compact Metadata Grid)
             if response.grounded and response.artwork_details:

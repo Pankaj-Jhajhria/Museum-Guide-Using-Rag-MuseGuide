@@ -149,6 +149,14 @@ def apply_custom_css():
         .meta-field strong {
             color: #a0aec0;
         }
+        .voice-box {
+            background: #161c28;
+            border: 1px solid #2d3748;
+            border-radius: 8px;
+            padding: 0.6rem 0.9rem;
+            margin-top: 0.5rem;
+            margin-bottom: 0.8rem;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -259,3 +267,34 @@ def render_citation_card(cit: Citation):
             if cit.museum_url:
                 st.markdown(f'[🏛️ View on Cleveland Museum of Art Portal]({cit.museum_url})')
         st.divider()
+
+
+def render_speak_control(answer_text: str, tts_engine):
+    """Render manual '🔊 Speak Answer' button and audio player. Never autoplays."""
+    if not answer_text or not answer_text.strip():
+        return
+
+    col_spk, col_info = st.columns([1, 4])
+    with col_spk:
+        speak_btn = st.button(
+            "🔊 Speak Answer",
+            key="speak_docent_btn",
+            help="Listen to a voice narration of the direct answer. Citations and metadata are omitted from spoken audio.",
+        )
+    with col_info:
+        engine_label = tts_engine.engine_name if tts_engine else "Offline Speech"
+        st.caption(f"Speech Engine: **{engine_label}**")
+
+    if speak_btn:
+        with st.spinner("Synthesizing docent voice..."):
+            try:
+                audio_bytes = tts_engine.synthesize_wav(answer_text)
+                st.session_state["tts_audio_cache"] = audio_bytes
+            except Exception as e:
+                st.error(f"Speech synthesis error: {e}")
+
+    # Display audio player if audio was synthesized
+    cached_audio = st.session_state.get("tts_audio_cache")
+    if cached_audio:
+        st.audio(cached_audio, format="audio/wav", autoplay=False)
+
