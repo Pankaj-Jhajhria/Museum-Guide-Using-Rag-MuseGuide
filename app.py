@@ -10,6 +10,7 @@ Interactive Streamlit Web Application featuring:
 
 import os
 import sys
+import random
 from pathlib import Path
 import pandas as pd
 import streamlit as st
@@ -31,16 +32,18 @@ from src.ui.components import (
     render_citation_card,
     render_docent_answer,
     render_header,
+    render_section_banner,
     render_speak_control,
 )
 from src.voice import DocentTTS, VoiceTranscriber
 
 # Page configuration
+sidebar_initial = os.getenv("SIDEBAR_INITIAL_STATE", "collapsed").strip().lower()
 st.set_page_config(
     page_title="MuseGuide — AI Museum Guide Using RAG",
     page_icon="🏛️",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed" if sidebar_initial != "expanded" else "expanded",
 )
 
 
@@ -48,9 +51,21 @@ st.set_page_config(
 @st.cache_resource(show_spinner="Loading semantic retrieval engine...")
 def load_searcher() -> SemanticSearcher:
     """Load and cache the SemanticSearcher with FAISS index."""
+    index_path = "data/index/cma_index.faiss"
+    metadata_path = "data/index/cma_metadata.json"
+
+    # Auto-build index on cold deployment if files are missing
+    if not os.path.exists(index_path) or not os.path.exists(metadata_path):
+        processed_json = "data/processed/cma_artworks.json"
+        if os.path.exists(processed_json):
+            with st.spinner("Building FAISS semantic vector index for initial deployment..."):
+                from src.retrieval.build_index import build_faiss_index, load_records
+                records = load_records(processed_json)
+                build_faiss_index(records, output_dir="data/index")
+
     return SemanticSearcher(
-        index_path="data/index/cma_index.faiss",
-        metadata_path="data/index/cma_metadata.json",
+        index_path=index_path,
+        metadata_path=metadata_path,
     )
 
 
@@ -170,8 +185,10 @@ def main():
     # TAB 1: AI Museum Docent (RAG with Citations & Voice)
     # -------------------------------------------------------------
     with tab_docent:
-        st.markdown("### Ask the AI Docent")
-        st.caption("Answers are strictly grounded in verified museum records with linked citations.")
+        render_section_banner(
+            "🏛️ AI Museum Docent (RAG)",
+            "Answers are strictly grounded in verified museum records with linked citations.",
+        )
 
         # Question input area: Primary text input + optional audio microphone
         col_text, col_mic = st.columns([5, 2])
@@ -209,6 +226,22 @@ def main():
             if audio_bytes and st.session_state.get("last_audio_sig") != audio_sig:
                 st.session_state["last_audio_sig"] = audio_sig
                 with st.status("🎙️ Transcribing voice recording with Groq Whisper...", expanded=True) as status:
+                    theme = os.getenv("UI_THEME", "vibrant").strip().lower()
+                    if theme != "classic":
+                        st.markdown(
+                            """
+                            <div class="audio-equalizer" style="margin: 6px 0 10px 0;">
+                                <div class="eq-bar bar-2"></div>
+                                <div class="eq-bar bar-4"></div>
+                                <div class="eq-bar bar-6"></div>
+                                <div class="eq-bar bar-8"></div>
+                                <div class="eq-bar bar-10"></div>
+                                <div class="eq-bar bar-12"></div>
+                                <span class="eq-label">🎙️ Groq Whisper Listening & Transcribing...</span>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
                     st.write("Processing audio with `whisper-large-v3-turbo`...")
                     try:
                         transcribed = transcriber.transcribe(audio_bytes, filename=getattr(voice_recording, "name", "voice_query.wav"))
@@ -238,7 +271,18 @@ def main():
             dept_filter = selected_dept if selected_dept != "All Departments" else None
             culture_filter = selected_culture if selected_culture != "All Cultures" else None
 
+            theme = os.getenv("UI_THEME", "vibrant").strip().lower()
             with st.spinner("Retrieving evidence and formulating guided answer..."):
+                if theme != "classic":
+                    st.markdown(
+                        """
+                        <div class="generation-pulse-banner">
+                            <div class="generation-ring"></div>
+                            <span>✦ Docent Neural Engine Formulating Grounded Answer...</span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
                 response = generator.generate(
                     query=triggered_query,
                     department=dept_filter,
@@ -295,18 +339,47 @@ def main():
     # TAB 2: Semantic Search & Similarity Explorer
     # -------------------------------------------------------------
     with tab_search:
-        st.markdown("### Semantic Vector Search")
-        st.caption("Search across 2,000 museum records using conceptual and natural-language queries.")
+        render_section_banner(
+            "🔍 Semantic Vector Search",
+            "Search across 2,000 museum records using conceptual and natural-language queries.",
+        )
 
-        search_col1, search_col2 = st.columns([4, 1])
+        # List of curated exploration themes for shuffle discovery
+        EXPLORATION_QUERIES = [
+            "Ancient Greek ceramic amphora with mythological warriors",
+            "Ancient Egyptian gold jewellery and royal cobra uraeus",
+            "Medieval illuminated manuscript with vibrant gold leaf",
+            "French Impressionist landscape oil paintings of rivers and gardens",
+            "Japanese samurai armor and katana swords from Edo period",
+            "Roman imperial marble portrait sculptures and deities",
+            "Chinese Ming dynasty blue and white porcelain vases",
+            "Renaissance religious paintings with rich lapis lazuli pigment",
+            "American colonial silver craftsmanship and portraiture",
+            "Indian miniature paintings of royal courts and nature",
+            "19th century boxing and athletic club saloons in New York",
+            "Art Nouveau decorative glassware and stained glass panels",
+        ]
+
+        # On initial load or refresh, choose a random exploration query
+        if "semantic_search_query" not in st.session_state:
+            st.session_state["semantic_search_query"] = random.choice(EXPLORATION_QUERIES)
+
+        search_col1, search_col_btn, search_col2 = st.columns([5, 1.4, 1.6])
         with search_col1:
             search_query = st.text_input(
                 "Search museum collection:",
-                value="Ancient Greek ceramic amphora with mythological warriors",
+                value=st.session_state.get("semantic_search_query", EXPLORATION_QUERIES[0]),
                 placeholder="e.g., bronze sculpture, Buddhist altar, samurai sword...",
+                key="semantic_query_input",
             )
+        with search_col_btn:
+            st.write("")
+            st.write("")
+            if st.button("🔀 Shuffle", key="btn_shuffle_semantic", help="Shuffle to a new theme & show 10 random artworks"):
+                st.session_state["semantic_search_query"] = random.choice(EXPLORATION_QUERIES)
+                st.rerun()
         with search_col2:
-            top_k_select = st.slider("Results", min_value=3, max_value=12, value=6)
+            top_k_select = st.slider("Results", min_value=3, max_value=15, value=10)
 
         if search_query:
             dept_filter = selected_dept if selected_dept != "All Departments" else None
@@ -365,10 +438,29 @@ def main():
     # TAB 3: Collection Gallery
     # -------------------------------------------------------------
     with tab_gallery:
-        st.markdown("### Browse Curated Museum Gallery")
-        st.caption("Explore high-resolution open-access artefacts from the Cleveland Museum of Art.")
+        render_section_banner(
+            "🎨 Curated Museum Gallery",
+            "Explore high-resolution open-access artefacts from the Cleveland Museum of Art (CC0 Public Domain).",
+        )
 
-        gallery_filter = st.text_input("Filter gallery by title or artist:", value="")
+        # Random seed initialization for refresh
+        if "gallery_seed" not in st.session_state:
+            st.session_state["gallery_seed"] = random.randint(1, 999999)
+
+        # Control bar: Filter input + Shuffle button + Revertible Random 10 Mode toggle
+        col_f1, col_f2, col_f3 = st.columns([5, 1.4, 2.2])
+        with col_f1:
+            gallery_filter = st.text_input("Filter gallery by title or artist:", value="", placeholder="Type to filter...")
+        with col_f2:
+            st.write("")
+            st.write("")
+            if st.button("🔀 Shuffle", key="btn_shuffle_gallery", help="Shuffle and display 10 fresh random artworks"):
+                st.session_state["gallery_seed"] = random.randint(1, 999999)
+                st.rerun()
+        with col_f3:
+            st.write("")
+            st.write("")
+            shuffle_mode = st.toggle("🔀 Random 10 Mode", value=True, help="Toggle between Random 10 shuffle on refresh vs. In-Order catalog view (Revertible)")
 
         # Filter dataframe
         filtered_df = artworks_df
@@ -383,10 +475,17 @@ def main():
             )
             filtered_df = filtered_df[mask]
 
-        st.caption(f"Showing {min(18, len(filtered_df))} of {len(filtered_df)} matching artworks")
+        # Sample 10 artworks (Random 10 vs In-Order 10)
+        num_items = min(10, len(filtered_df))
+        if shuffle_mode and len(filtered_df) > num_items:
+            display_df = filtered_df.sample(n=num_items, random_state=st.session_state["gallery_seed"])
+        else:
+            display_df = filtered_df.head(num_items)
+
+        st.caption(f"Showing {len(display_df)} of {len(filtered_df)} matching artworks (Mode: {'Random 10 (Shuffle)' if shuffle_mode else 'Sequential Catalog'})")
 
         gallery_cols = st.columns(3)
-        for idx, (_, row) in enumerate(filtered_df.head(18).iterrows()):
+        for idx, (_, row) in enumerate(display_df.iterrows()):
             with gallery_cols[idx % 3]:
                 if pd.notna(row.get("image_url")):
                     try:
@@ -423,8 +522,10 @@ def main():
     # TAB 4: Collection Insights & Analytics
     # -------------------------------------------------------------
     with tab_insights:
-        st.markdown("### Museum Collection Analytics")
-        st.caption("Data distribution and curatorial statistics across the 2,000 indexed artefacts.")
+        render_section_banner(
+            "📊 Museum Collection Analytics",
+            "Data distribution and curatorial statistics across the 2,000 indexed artefacts.",
+        )
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total Records", f"{len(artworks_df):,}")

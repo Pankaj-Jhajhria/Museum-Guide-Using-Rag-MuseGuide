@@ -65,16 +65,27 @@ class DocentTTS:
         self,
         model_path: Optional[str] = None,
         config_path: Optional[str] = None,
+        rate: Optional[int] = None,
+        gender: Optional[str] = None,
     ):
         """Initialize TTS engine.
 
         Args:
             model_path: Path to Piper ONNX model file. If None, checks PIPER_MODEL_PATH env or models/piper/en_US-lessac-medium.onnx.
             config_path: Path to Piper JSON config file.
+            rate: Words per minute speech rate (default 135 for calm, slower museum docent pace; previously 165).
+            gender: Voice gender preference ('male' or 'female', default 'male').
         """
         env_model = os.getenv("PIPER_MODEL_PATH", "models/piper/en_US-lessac-medium.onnx")
         self.model_path = model_path or env_model
         self.config_path = config_path or f"{self.model_path}.json"
+
+        # Configurable speech rate (slower rate for clear museum docent pacing, default 135 WPM)
+        env_rate = int(os.getenv("DOCENT_VOICE_RATE", "135"))
+        self.rate = rate if rate is not None else env_rate
+
+        # Preferred voice gender ('male' or 'female', default 'male')
+        self.gender = (gender or os.getenv("DOCENT_VOICE_GENDER", "male")).strip().lower()
 
         self._piper_voice = None
         self._piper_available = False
@@ -83,19 +94,27 @@ class DocentTTS:
         self._initialize_engine()
 
     def _initialize_engine(self):
-        """Attempt to load Piper ONNX model, otherwise fall back to pyttsx3."""
-        if os.path.exists(self.model_path) and os.path.exists(self.config_path):
-            try:
-                import piper
+        """Attempt to load Piper ONNX model, otherwise fall back to pyttsx3.
 
-                logger.info("Loading Piper ONNX voice from %s...", self.model_path)
-                self._piper_voice = piper.PiperVoice.load(self.model_path, config_path=self.config_path)
-                self._piper_available = True
-                self._engine_type = "piper (en_US-lessac-medium)"
-                logger.info("Piper neural TTS successfully initialized.")
-                return
-            except Exception as e:
-                logger.warning("Failed to load Piper voice (%s). Falling back to pyttsx3.", e)
+        If a male voice is requested and Piper's available model is female (Lessac),
+        it defaults to pyttsx3's native male voice (e.g., Microsoft David on Windows).
+        """
+        prefer_engine = os.getenv("DOCENT_TTS_ENGINE", "").strip().lower()
+
+        # If user explicitly requests Piper or Piper has a matching voice model
+        if prefer_engine != "pyttsx3" and not (self.gender == "male" and "lessac" in self.model_path.lower()):
+            if os.path.exists(self.model_path) and os.path.exists(self.config_path):
+                try:
+                    import piper
+
+                    logger.info("Loading Piper ONNX voice from %s...", self.model_path)
+                    self._piper_voice = piper.PiperVoice.load(self.model_path, config_path=self.config_path)
+                    self._piper_available = True
+                    self._engine_type = "piper (en_US-lessac-medium)"
+                    logger.info("Piper neural TTS successfully initialized.")
+                    return
+                except Exception as e:
+                    logger.warning("Failed to load Piper voice (%s). Falling back to pyttsx3.", e)
 
         # Fallback to local pyttsx3 (uses native OS SAPI5 on Windows / NSSpeechSynthesizer on macOS)
         try:
@@ -104,8 +123,8 @@ class DocentTTS:
             # Verify pyttsx3 can be initialized
             engine = pyttsx3.init()
             engine.stop()
-            self._engine_type = "pyttsx3 (local OS voice)"
-            logger.info("Local OS speech engine (pyttsx3) available as fallback.")
+            self._engine_type = f"pyttsx3 (local OS voice - {self.gender}, {self.rate} wpm)"
+            logger.info("Local OS speech engine (pyttsx3) available.")
         except Exception as e:
             logger.warning("pyttsx3 initialization failed (%s). TTS will be unavailable until a model is provided.", e)
             self._engine_type = "unavailable"
@@ -139,7 +158,8 @@ class DocentTTS:
         # 1. Primary: High-fidelity Piper neural ONNX synthesis
         if self._piper_available and self._piper_voice is not None:
             try:
-                chunks = list(self._piper_voice.synthesize(clean_text))
+                # Slower docent speech rate via length_scale (default ~1.25 for measured pacing)
+                chunks = list(self._piper_voice.synthesize(clean_text, length_scale=1.25))
                 if not chunks:
                     raise RuntimeError("Piper synthesis returned empty audio chunks.")
 
@@ -163,9 +183,30 @@ class DocentTTS:
             import pyttsx3
 
             engine = pyttsx3.init()
-            # Set speech rate and volume for docent tone
-            engine.setProperty("rate", 165)
+            # Set speech rate (slower museum docent pacing) and volume
+            engine.setProperty("rate", self.rate)
             engine.setProperty("volume", 0.95)
+
+            # Select voice by gender preference ('male' e.g. David / 'female' e.g. Zira)
+            voices = engine.getProperty("voices")
+            selected_voice = None
+            if self.gender == "male":
+                for v in voices:
+                    name_lower = v.name.lower()
+                    gender_attr = str(getattr(v, "gender", "")).lower()
+                    if "david" in name_lower or "male" in gender_attr or "george" in name_lower or "mark" in name_lower:
+                        selected_voice = v.id
+                        break
+            elif self.gender == "female":
+                for v in voices:
+                    name_lower = v.name.lower()
+                    gender_attr = str(getattr(v, "gender", "")).lower()
+                    if "zira" in name_lower or "female" in gender_attr or "hazel" in name_lower:
+                        selected_voice = v.id
+                        break
+
+            if selected_voice:
+                engine.setProperty("voice", selected_voice)
 
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
                 tmp_path = tmp.name

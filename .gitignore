@@ -42,11 +42,11 @@ htmlcov/
 # Raw Datasets (Large raw API dumps reproducible via src/data/fetch_cma.py)
 data/raw/
 
-# Rebuildable Vector Indexes & Generated Metadata (Reproducible via src/retrieval/build_index.py)
-data/index/*.faiss
-data/index/*.pkl
-data/index/cma_metadata.json
+# Rebuildable Vector Indexes & Generated Metadata (Track prebuilt CMA index for deployment)
+!data/index/cma_index.faiss
+!data/index/cma_metadata.json
 !data/index/index_config.json
+data/index/*.pkl
 
 # IDE & Editor Temporary Files
 .vscode/
